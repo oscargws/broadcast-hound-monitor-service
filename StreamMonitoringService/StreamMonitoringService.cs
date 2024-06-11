@@ -1,5 +1,3 @@
-using Amazon.SQS;
-using Amazon.SQS.Model;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -12,35 +10,34 @@ using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Xabe.FFmpeg;
-using Xabe.FFmpeg.Downloader;
 
 namespace StreamMonitoringService
 {
     public class StreamMonitoringService
     {
         private readonly IConfiguration _configuration;
-        private readonly IAmazonSQS _sqsClient;
         private readonly ILogger<StreamMonitoringService> _logger;
         private readonly Supabase.Client _supabaseClient;
+        private readonly HttpClient _httpClient;
         private string _ffmpegLog;
 
-        public StreamMonitoringService(IConfiguration configuration, IAmazonSQS sqsClient, ILogger<StreamMonitoringService> logger)
+        public StreamMonitoringService(IConfiguration configuration, ILogger<StreamMonitoringService> logger)
         {
             _configuration = configuration;
-            _sqsClient = sqsClient;
             _logger = logger;
             _supabaseClient = new Supabase.Client(_configuration["Supabase:Url"], _configuration["Supabase:Key"]);
+            _httpClient = new HttpClient();
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "BroadcastHoundMonitor/1.0 (+https://www.broadcasthound.com)");
 
             InitializeFFmpeg().Wait();
         }
 
         private async Task InitializeFFmpeg()
         {
-            _logger.LogInformation("Looking for ffmpegPath in path:");
-            // var ffmpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg-lib");
+            _logger.LogInformation("Initializing FFmpeg.");
             var ffmpegPath = AppDomain.CurrentDomain.BaseDirectory;
-            _logger.LogInformation(ffmpegPath);
-            FFmpeg.SetExecutablesPath(AppDomain.CurrentDomain.BaseDirectory);
+            _logger.LogInformation($"FFmpeg path: {ffmpegPath}");
+            FFmpeg.SetExecutablesPath(ffmpegPath);
         }
 
         public async Task FetchAndMonitorStreamsAsync()
@@ -55,7 +52,7 @@ namespace StreamMonitoringService
             _logger.LogInformation("Fetching streams from Supabase.");
             var response = await _supabaseClient.From<Stream>().Get();
             var streams = response.Models;
-            _logger.LogInformation($"Fetched {streams.Count} streams.");
+            _logger.LogInformation($"Fetched {streams.Count()} streams.");
             return streams;
         }
 
@@ -64,9 +61,7 @@ namespace StreamMonitoringService
             try
             {
                 _logger.LogInformation("Monitoring stream: {url}", stream.Url);
-                using var httpClient = new HttpClient();
-                httpClient.DefaultRequestHeaders.Add("User-Agent", "BroadcastHoundMonitor/1.0 (+https://www.broadcasthound.com)");
-                var response = await httpClient.GetAsync(stream.Url, HttpCompletionOption.ResponseHeadersRead);
+                var response = await _httpClient.GetAsync(stream.Url, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
 
                 using var streamData = new MemoryStream();
@@ -106,12 +101,17 @@ namespace StreamMonitoringService
                 var status = db < -30 ? "down" : "online";
                 _logger.LogInformation("Stream {url} is {status} with volume {db} dB", stream.Url, status, db);
 
-                await SendMessageToSQSAsync(stream, db, status);
+                await InsertCheckAsync(stream, db, status);
+            }
+            catch (HttpRequestException httpEx)
+            {
+                _logger.LogError(httpEx, "Network error while monitoring stream {url}", stream.Url);
+                await InsertCheckAsync(stream, 0, "down");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error monitoring stream {url}", stream.Url);
-                await SendMessageToSQSAsync(stream, 0, "down");
+                await InsertCheckAsync(stream, 0, "down");
             }
         }
 
@@ -121,26 +121,35 @@ namespace StreamMonitoringService
             return match.Success ? double.Parse(match.Groups["volume"].Value) : 0.0;
         }
 
-        private async Task SendMessageToSQSAsync(Stream stream, double volume, string status)
-        { 
-            _logger.LogInformation("Posting message to SQS for {url}", stream.Url);
-            var result = new
+        private async Task InsertCheckAsync(Stream stream, double volume, string status)
+        {
+            _logger.LogInformation("Inserting check into database for {url}", stream.Url);
+            
+            var check = new Check
             {
-                stream_id = stream.Id,
-                account_id = stream.AccountId,
-                volume,
-                status,
-                timestamp = DateTime.UtcNow
+                Id = Guid.NewGuid(),
+                Completed = true,
+                Stream = stream.Id,
+                Status = status,
+                AccountId = stream.AccountId
             };
 
-            var sendMessageRequest = new SendMessageRequest
+            try
             {
-                QueueUrl = _configuration["AppSettings:SQSQueueUrl"],
-                MessageBody = JsonConvert.SerializeObject(result)
-            };
-
-            await _sqsClient.SendMessageAsync(sendMessageRequest);
-            _logger.LogInformation("Posting message to SQS for successful {url}", stream.Url);
+                var response = await _supabaseClient.From<Check>().Insert(check);
+                if (response.Models.Count > 0)
+                {
+                    _logger.LogInformation("Check inserted successfully for {url}", stream.Url);
+                }
+                else
+                {
+                    _logger.LogError("Failed to insert check for {url}. No records inserted.", stream.Url);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to insert check for {url}", stream.Url);
+            }
         }
     }
 }
