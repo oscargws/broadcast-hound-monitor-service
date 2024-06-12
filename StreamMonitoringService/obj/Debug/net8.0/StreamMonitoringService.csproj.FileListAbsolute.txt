@@ -155,3 +155,4 @@
 /Users/oscar/RiderProjects/StreamMonitoringService/StreamMonitoringService/bin/Debug/net8.0/version.json
 /Users/oscar/RiderProjects/StreamMonitoringService/StreamMonitoringService/bin/Debug/net8.0/ffmpeg
 /Users/oscar/RiderProjects/StreamMonitoringService/StreamMonitoringService/bin/Debug/net8.0/ffprobe
+/Users/oscar/RiderProjects/StreamMonitoringService/StreamMonitoringService/obj/Debug/net8.0/StreamMonitoringService.sourcelink.json

@@ -32,10 +32,19 @@ namespace StreamMonitoringService
             InitializeFFmpeg().Wait();
         }
 
+        // private async Task InitializeFFmpeg()
+        // {
+        //     _logger.LogInformation("Initializing FFmpeg.");
+        //     var ffmpegPath = AppDomain.CurrentDomain.BaseDirectory;
+        //     _logger.LogInformation($"FFmpeg path: {ffmpegPath}");
+        //     FFmpeg.SetExecutablesPath(ffmpegPath);
+        // }
+        //
         private async Task InitializeFFmpeg()
         {
             _logger.LogInformation("Initializing FFmpeg.");
-            var ffmpegPath = AppDomain.CurrentDomain.BaseDirectory;
+            // Set the path to the directory containing ffmpeg and ffprobe
+            var ffmpegPath = "/usr/bin";
             _logger.LogInformation($"FFmpeg path: {ffmpegPath}");
             FFmpeg.SetExecutablesPath(ffmpegPath);
         }
