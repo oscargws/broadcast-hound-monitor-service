@@ -7,16 +7,33 @@ namespace StreamMonitoringService
     [Table("streams")]
     public class Stream : BaseModel
     {
-        // [Column("id")]
+        [PrimaryKey("id")]
         [JsonProperty("id")]
         public Guid Id { get; set; }
 
-        // [Column("url")]
         [JsonProperty("url")]
+        [Column("url")]
         public string Url { get; set; }
 
-        // [Column("account_id")]
         [JsonProperty("account_id")]
+        [Column("account_id")]
         public Guid AccountId { get; set; }
+        
+        [JsonProperty("last_outage")]
+        [Column("last_outage")]
+        public DateTime LastOutage   { get; set; }
+        
+        [JsonProperty("last_online")]
+        [Column("last_online")]
+        public DateTime LastOnline   { get; set; }
+        
+        [JsonProperty("last_check")]
+        [Column("last_check")]
+        public DateTime LastCheck   { get; set; }
+        
+        [JsonProperty("status")]
+        [Column("status")]
+        public string Status   { get; set; }
+        
     }
 }
